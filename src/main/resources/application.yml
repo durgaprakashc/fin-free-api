@@ -42,7 +42,7 @@ app:
       board-id: ${JIRA_BOARD_ID:2}
     github:
       owner: ${GITHUB_OWNER:durgaprakashc}
-      repo: ${GITHUB_REPO:fin-free}
+      repo: ${GITHUB_REPO:fin-free-api}
       base-branch: ${GITHUB_BASE_BRANCH:main}
     confluence:
       space-key: ${CONFLUENCE_SPACE_KEY:SD}
