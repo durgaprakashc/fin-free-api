@@ -1,0 +1,50 @@
+name: Claude PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+  issue_comment:
+    types: [created]
+
+jobs:
+  claude-review:
+    # Run on PR events, or on PR comments that mention @claude
+    if: >
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request &&
+       contains(github.event.comment.body, '@claude'))
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Claude Code Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          # Custom review prompt
+          direct_prompt: |
+            Review this PR thoroughly. Focus on:
+            1. Code correctness and potential bugs
+            2. Security vulnerabilities
+            3. Performance concerns
+            4. Spring Boot best practices
+            5. Java 21 idioms and modern patterns
+            6. Test coverage gaps
+
+            Be specific with line references. Suggest fixes, not just problems.
+
+          # Timeout in seconds (5 minutes)
+          timeout_seconds: 300
