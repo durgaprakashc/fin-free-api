@@ -205,6 +205,14 @@ public class PipelineIntegrationService {
             }
             result.getActions().add("Created " + storyKeys.size() + " stories: " + String.join(", ", storyKeys));
 
+            // Assign stories to the active sprint so they appear on the Scrum board
+            String sprintResult = jiraService.assignStoriesToActiveSprint(
+                    properties.getJira().getBoardId(), storyKeys);
+            log.info("Sprint assignment: {}", sprintResult);
+            if (!sprintResult.contains("backlog")) {
+                result.getActions().add("Assigned stories to active sprint");
+            }
+
             // Step 3: Transition stories to In Progress
             for (String storyKey : storyKeys) {
                 try {

@@ -11,8 +11,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Jira integration via Atlassian MCP server.
@@ -73,7 +76,7 @@ public class JiraIntegrationService {
 
     /**
      * Create an epic and its child stories from pipeline PM agent output.
-     * Expects a structured map with epic details and a list of stories.
+     * Stories are automatically added to the active sprint so they appear on the Scrum board.
      */
     public String createEpicWithStories(String epicSummary, String epicDescription,
                                         List<Map<String, Object>> stories) {
@@ -86,22 +89,82 @@ public class JiraIntegrationService {
         StringBuilder results = new StringBuilder();
         results.append("Epic: ").append(epicKey).append("\n");
 
+        List<String> storyKeys = new ArrayList<>();
         for (Map<String, Object> story : stories) {
             String storyResult = createIssue(
                     "Story",
                     (String) story.getOrDefault("summary", "Untitled Story"),
                     (String) story.getOrDefault("description", ""),
                     (String) story.getOrDefault("priority", "Medium"),
-                    (Integer) story.getOrDefault("storyPoints", 3),
+                    story.get("storyPoints") instanceof Number sp ? sp.intValue() : 3,
                     List.of("sdlc-pipeline"),
                     epicKey
             );
             String storyKey = extractIssueKey(storyResult);
+            storyKeys.add(storyKey);
             results.append("  Story: ").append(storyKey).append(" - ")
                     .append(story.getOrDefault("summary", "")).append("\n");
         }
 
+        String sprintResult = assignStoriesToActiveSprint(properties.getJira().getBoardId(), storyKeys);
+        results.append(sprintResult);
+
         return results.toString();
+    }
+
+    /**
+     * Find the active sprint for a board and add the given issues to it.
+     * On a Scrum board, issues must be in a sprint to appear on the board view.
+     *
+     * @param boardId   Jira board ID (e.g., "2")
+     * @param issueKeys list of issue keys to add to the active sprint
+     * @return status message
+     */
+    public String assignStoriesToActiveSprint(String boardId, List<String> issueKeys) {
+        if (issueKeys == null || issueKeys.isEmpty()) {
+            return "";
+        }
+        String activeSprintId = getActiveSprintId(boardId);
+        if (activeSprintId == null) {
+            log.warn("No active sprint found for board {} — {} issues remain in backlog",
+                    boardId, issueKeys.size());
+            return "  [No active sprint on board " + boardId + " — stories are in backlog]\n";
+        }
+        log.info("Adding {} issues to sprint {} on board {}", issueKeys.size(), activeSprintId, boardId);
+        addIssuesToSprint(activeSprintId, issueKeys);
+        return "  Assigned " + issueKeys.size() + " stories to sprint " + activeSprintId + "\n";
+    }
+
+    /**
+     * Add a list of issues to a specific sprint.
+     */
+    public String addIssuesToSprint(String sprintId, List<String> issueKeys) {
+        ObjectNode args = objectMapper.createObjectNode();
+        args.put("sprintId", sprintId);
+        ArrayNode keys = args.putArray("issueKeys");
+        issueKeys.forEach(keys::add);
+        return mcpToolService.invokeTool("jira_add_issues_to_sprint", args.toString());
+    }
+
+    /**
+     * Return the ID of the active sprint for a board, or null if none exists.
+     */
+    private String getActiveSprintId(String boardId) {
+        try {
+            ObjectNode args = objectMapper.createObjectNode();
+            args.put("boardId", boardId);
+            args.put("state", "active");
+            String sprintsJson = mcpToolService.invokeTool("jira_get_board_sprints", args.toString());
+
+            JsonNode root = objectMapper.readTree(sprintsJson);
+            JsonNode values = root.has("values") ? root.get("values") : root;
+            if (values.isArray() && !values.isEmpty()) {
+                return values.get(0).get("id").asText();
+            }
+        } catch (JsonProcessingException e) {
+            log.warn("Could not parse sprints response: {}", e.getMessage());
+        }
+        return null;
     }
 
     /**
@@ -200,15 +263,29 @@ public class JiraIntegrationService {
         return mcpToolService.invokeTool("jira_add_comment", args.toString());
     }
 
+    private static final Pattern JIRA_KEY_PATTERN = Pattern.compile("\\b([A-Z][A-Z0-9]+-\\d+)\\b");
+
     private String extractIssueKey(String createResponse) {
+        // 1. Try top-level "key" in JSON
         try {
             JsonNode node = objectMapper.readTree(createResponse);
             if (node.has("key")) {
                 return node.get("key").asText();
             }
+            // 2. Try one level deep (e.g. {"issue": {"key": "FIN-1"}})
+            JsonNode keyNode = node.findValue("key");
+            if (keyNode != null && !keyNode.isNull()) {
+                return keyNode.asText();
+            }
         } catch (JsonProcessingException e) {
-            log.warn("Could not parse issue key from response: {}", createResponse);
+            log.debug("Response is not JSON, falling back to regex key extraction");
         }
+        // 3. Regex fallback for plain-text responses like "Created issue FIN-42"
+        Matcher m = JIRA_KEY_PATTERN.matcher(createResponse);
+        if (m.find()) {
+            return m.group(1);
+        }
+        log.warn("Could not extract issue key from response: {}", createResponse);
         return "UNKNOWN";
     }
 
