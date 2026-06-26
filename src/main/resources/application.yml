@@ -1,0 +1,48 @@
+spring:
+  application:
+    name: fin-freedom
+
+  datasource:
+    url: jdbc:h2:mem:appdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+server:
+  port: 8080
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:default-dev-secret-change-in-prod-must-be-256-bits-long-at-least-32chars}
+    expiration-ms: 86400000
+  integration:
+    jira:
+      project-key: ${JIRA_PROJECT_KEY:ASD}
+      board-id: ${JIRA_BOARD_ID:35}
+    github:
+      owner: ${GITHUB_OWNER:durgaprakashc}
+      repo: ${GITHUB_REPO:fin-free-api}
+      base-branch: ${GITHUB_BASE_BRANCH:main}
+    confluence:
+      space-key: ${CONFLUENCE_SPACE_KEY:SD}
