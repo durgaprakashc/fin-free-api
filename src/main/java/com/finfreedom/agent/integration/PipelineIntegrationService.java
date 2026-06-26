@@ -1,5 +1,8 @@
 package com.finfreedom.agent.integration;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finfreedom.agent.config.IntegrationProperties;
 import com.finfreedom.agent.core.AgentResponse;
 import com.finfreedom.agent.core.AgentRole;
@@ -18,6 +21,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Orchestrates the full integrated pipeline:
@@ -38,6 +43,7 @@ public class PipelineIntegrationService {
     private final ConfluenceIntegrationService confluenceService;
     private final ConversationMemory conversationMemory;
     private final IntegrationProperties properties;
+    private final ObjectMapper objectMapper;
 
     /**
      * Execute a full integrated pipeline triggered by a Jira issue.
@@ -363,14 +369,26 @@ public class PipelineIntegrationService {
         return sb.toString();
     }
 
+    private static final Pattern JIRA_KEY_PATTERN = Pattern.compile("\\b([A-Z][A-Z0-9]+-\\d+)\\b");
+
     private String extractIssueKey(String createResponse) {
-        if (createResponse.contains("\"key\"")) {
-            int start = createResponse.indexOf("\"key\"") + 7;
-            int end = createResponse.indexOf("\"", start);
-            if (end > start) {
-                return createResponse.substring(start, end);
+        try {
+            JsonNode node = objectMapper.readTree(createResponse);
+            if (node.has("key")) {
+                return node.get("key").asText();
             }
+            JsonNode keyNode = node.findValue("key");
+            if (keyNode != null && !keyNode.isNull()) {
+                return keyNode.asText();
+            }
+        } catch (JsonProcessingException e) {
+            log.debug("Response is not JSON, falling back to regex: {}", e.getMessage());
         }
+        Matcher m = JIRA_KEY_PATTERN.matcher(createResponse);
+        if (m.find()) {
+            return m.group(1);
+        }
+        log.warn("Could not extract issue key from response: {}", createResponse);
         return "UNKNOWN";
     }
 

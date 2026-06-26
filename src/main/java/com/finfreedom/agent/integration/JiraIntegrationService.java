@@ -154,7 +154,7 @@ public class JiraIntegrationService {
             ObjectNode args = objectMapper.createObjectNode();
             args.put("boardId", boardId);
             args.put("state", "active");
-            String sprintsJson = mcpToolService.invokeTool("jira_get_board_sprints", args.toString());
+            String sprintsJson = mcpToolService.invokeTool("jira_get_sprints_from_board", args.toString());
 
             JsonNode root = objectMapper.readTree(sprintsJson);
             JsonNode values = root.has("values") ? root.get("values") : root;
